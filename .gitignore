@@ -1,0 +1,3 @@
+# .gitignore 内容
+__pycache__/
+*.pyc
