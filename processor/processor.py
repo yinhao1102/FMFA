@@ -19,12 +19,14 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
     arguments["num_epoch"] = num_epoch
     arguments["iteration"] = 0
 
-    logger = logging.getLogger("IRRA.train")
+    logger = logging.getLogger("FMFA.train")
     logger.info('start training')
 
     meters = {
         "loss": AverageMeter(),
         "sdm_loss": AverageMeter(),
+        "a_sdm_loss": AverageMeter(),
+        "efa_loss": AverageMeter(),
         "itc_loss": AverageMeter(),
         "id_loss": AverageMeter(),
         "mlm_loss": AverageMeter(),
@@ -53,6 +55,8 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
             batch_size = batch['images'].shape[0]
             meters['loss'].update(total_loss.item(), batch_size)
             meters['sdm_loss'].update(ret.get('sdm_loss', 0), batch_size)
+            meters['a_sdm_loss'].update(ret.get('a_sdm_loss', 0), batch_size)
+            meters['efa_loss'].update(ret.get('efa_loss', 0), batch_size)
             meters['itc_loss'].update(ret.get('itc_loss', 0), batch_size)
             meters['id_loss'].update(ret.get('id_loss', 0), batch_size)
             meters['mlm_loss'].update(ret.get('mlm_loss', 0), batch_size)
@@ -70,8 +74,8 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
                 info_str = f"Epoch[{epoch}] Iteration[{n_iter + 1}/{len(train_loader)}]"
                 # log loss and acc info
                 for k, v in meters.items():
-                    if v.avg > 0:
-                        info_str += f", {k}: {v.avg:.4f}"
+                    if v.val > 0:
+                        info_str += f", {k}: {v.val:.4f}"
                 info_str += f", Base Lr: {scheduler.get_lr()[0]:.2e}"
                 logger.info(info_str)
         
@@ -109,7 +113,7 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
 
 def do_inference(model, test_img_loader, test_txt_loader):
 
-    logger = logging.getLogger("IRRA.test")
+    logger = logging.getLogger("FMFA.test")
     logger.info("Enter inferencing")
 
     evaluator = Evaluator(test_img_loader, test_txt_loader)

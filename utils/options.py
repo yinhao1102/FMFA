@@ -2,7 +2,7 @@ import argparse
 
 
 def get_args():
-    parser = argparse.ArgumentParser(description="IRRA Args")
+    parser = argparse.ArgumentParser(description="FMFA Args")
     ######################## general settings ########################
     parser.add_argument("--local_rank", default=0, type=int)
     parser.add_argument("--name", default="baseline", help="experiment name to save")
@@ -26,9 +26,14 @@ def get_args():
     parser.add_argument("--MLM", default=False, action='store_true', help="whether to use Mask Language Modeling dataset")
 
     ######################## loss settings ########################
-    parser.add_argument("--loss_names", default='sdm+id+mlm', help="which loss to use ['mlm', 'cmpm', 'id', 'itc', 'sdm']")
+    parser.add_argument("--loss_names", default='efa', help="which loss to use ['mlm', 'cmpm', 'id', 'itc', 'sdm','a-sdm', 'efa']")
     parser.add_argument("--mlm_loss_weight", type=float, default=1.0, help="mlm loss weight")
     parser.add_argument("--id_loss_weight", type=float, default=1.0, help="id loss weight")
+    parser.add_argument("--efa_loss_weight", type=float, default=1.0, help="efa loss weight")
+    parser.add_argument("--margin_t2e", type=float, default=0.1, help="the margin in efa loss for text to multimodal")
+    parser.add_argument("--margin_i2e", type=float, default=0.1, help="the margin in efa loss for image to multimodal")
+    parser.add_argument("--alpha_i2t", type=float, default=10.0, help="the weight factor in a-sdm loss for image to text")
+    parser.add_argument("--alpha_t2i", type=float, default=10.0, help="the weight factor in a-sdm loss for text to image")
     
     ######################## vison trainsformer settings ########################
     parser.add_argument("--img_size", type=tuple, default=(384, 128))

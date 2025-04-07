@@ -6,7 +6,7 @@ import torch.nn as nn
 from collections import OrderedDict
 
 
-class IRRA(nn.Module):
+class FMFA(nn.Module):
     def __init__(self, args, num_classes=11003):
         super().__init__()
         self.args = args
@@ -106,6 +106,9 @@ class IRRA(nn.Module):
         if 'sdm' in self.current_task:
             ret.update({'sdm_loss':objectives.compute_sdm(i_feats, t_feats, batch['pids'], logit_scale)})
 
+        if 'a-sdm' in self.current_task:
+            ret.update({'a_sdm_loss':objectives.compute_a_sdm(i_feats, t_feats, batch['pids'], logit_scale, self.args.alpha_i2t, self.args.alpha_t2i)})
+
         if 'cmpm' in self.current_task:
             ret.update({'cmpm_loss':objectives.compute_cmpm(i_feats, t_feats, batch['pids'])})
         
@@ -122,6 +125,22 @@ class IRRA(nn.Module):
             ret.update({'img_acc': image_precision})
             ret.update({'txt_acc': text_precision})
         
+        if 'efa' in self.current_task:
+            t2isim = torch.matmul(text_feats, image_feats[:,1:,:].transpose(1,2))
+            
+            min_vals = t2isim.min(dim=2, keepdim=True)[0]  # [B, L, 1]
+            max_vals = t2isim.max(dim=2, keepdim=True)[0]  # [B, L, 1]
+
+            t2isim = (t2isim - min_vals) / (max_vals - min_vals)
+
+            threshold = 1.0 / t2isim.size(2)
+            t2isim = torch.where(t2isim > threshold, t2isim, torch.zeros_like(t2isim))
+            row_sums = t2isim.sum(dim=2, keepdim=True)  # 求每一行的总和，形状为 [B, L, 1]
+            t2isim = t2isim / row_sums
+
+            agg_v = torch.matmul(t2isim, image_feats[:,1:,:])
+            ret.update({'efa_loss':objectives.compute_efa(text_feats, image_feats[:,1:,:], agg_v, self.args.margin_t2e, self.args.margin_i2e)*self.args.efa_loss_weight})
+
         if 'mlm' in self.current_task:
             mlm_ids = batch['mlm_ids']
 
@@ -144,7 +163,7 @@ class IRRA(nn.Module):
 
 
 def build_model(args, num_classes=11003):
-    model = IRRA(args, num_classes)
+    model = FMFA(args, num_classes)
     # covert model to fp16
     convert_weights(model)
     return model
