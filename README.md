@@ -44,7 +44,7 @@ python train.py \
 --img_aug \
 --batch_size 64 \
 --MLM \
---loss_names 'sdm+mlm+id' \
+--loss_names 'mlm+id+efa' \
 --dataset_name 'CUHK-PEDES' \
 --root_dir 'your dataset root dir' \
 --num_epoch 60
