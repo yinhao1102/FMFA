@@ -44,6 +44,7 @@ Download the pre-train model checkpoints from [NAM](https://github.com/WentaoTan
 ## Training
 
 To train the model with the backbone without pretrained in the Re-ID domain, you can run the [run.sh](run.sh). 
+
 To train the model with the backbone without pretrained in the Re-ID domain, you can run the [finetune.sh](finetune.sh). 
 
 ## Testing
