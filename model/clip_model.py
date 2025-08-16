@@ -15,6 +15,8 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from model.style import AdaIN
+
 
 logger = logging.getLogger("IRRA.model")
 
@@ -112,7 +114,7 @@ class Bottleneck(nn.Module):
 
 
 class AttentionPool2d(nn.Module):
-    def __init__(self, spacial_dim: int, embed_dim: int, num_heads: int, output_dim: int = None):
+    def __init__(self, spacial_dim: int, embed_dim: int, num_heads: int, output_dim: int = None, cls_token=None):
         super().__init__()
         # self.positional_embedding = nn.Parameter(torch.randn(spacial_dim ** 2 + 1, embed_dim) / embed_dim ** 0.5)
         self.positional_embedding = nn.Parameter(torch.randn((spacial_dim[0] * spacial_dim[1]) + 1, embed_dim)/ embed_dim ** 0.5)
@@ -121,13 +123,21 @@ class AttentionPool2d(nn.Module):
         self.v_proj = nn.Linear(embed_dim, embed_dim)
         self.c_proj = nn.Linear(embed_dim, output_dim or embed_dim)
         self.num_heads = num_heads
-
+        self.cls_token = cls_token
+        if self.cls_token is not None:
+            self.cls = nn.Parameter(torch.randn([1,2048]))
     def forward(self, x):
         x = x.reshape(x.shape[0], x.shape[1], x.shape[2] * x.shape[3]).permute(2, 0, 1)  # NCHW -> (HW)NC
         x = torch.cat([x.mean(dim=0, keepdim=True), x], dim=0)  # (HW+1)NC
+
         x = x + self.positional_embedding[:, None, :].to(x.dtype)  # (HW+1)NC
+        if self.cls_token is not None:
+            q = self.cls.unsqueeze(1).repeat(1,x.size(1),1).to(x.dtype).to(x.device)
+
+        else:
+            q = x
         x, _ = F.multi_head_attention_forward(
-            query=x, key=x, value=x,
+            query=q, key=x, value=x,
             embed_dim_to_check=x.shape[-1],
             num_heads=self.num_heads,
             q_proj_weight=self.q_proj.weight,
@@ -145,8 +155,8 @@ class AttentionPool2d(nn.Module):
             training=self.training,
             need_weights=False
         )
-
-        return x[0]
+        return x.permute(1,0,2)
+        # return x[0]
 
 
 class ModifiedResNet(nn.Module):
@@ -185,7 +195,11 @@ class ModifiedResNet(nn.Module):
             input_resolution[1] // 32,
         )
         self.attnpool = AttentionPool2d(spacial_dim, embed_dim, heads, output_dim)
-
+        # self.attnpool0 = AttentionPool2d(spacial_dim, embed_dim, heads, output_dim,1)
+        # self.attnpool1 = AttentionPool2d(spacial_dim, embed_dim, heads, output_dim,1)
+        # self.attnpool2 = AttentionPool2d(spacial_dim, embed_dim, heads, output_dim,1)
+        # self.attnpool3 = AttentionPool2d(spacial_dim, embed_dim, heads, output_dim,1)
+        self.style = AdaIN(p=0.5)
     def _make_layer(self, planes, blocks, stride=1):
         layers = [Bottleneck(self._inplanes, planes, stride)]
 
@@ -205,12 +219,20 @@ class ModifiedResNet(nn.Module):
         x = x.type(self.conv1.weight.dtype)
         x = stem(x)
         x = self.layer1(x)
+        # if self.training:
+        #     x = self.style(x)
         x = self.layer2(x)
+        # if self.training:
+        #     x = self.style(x)
         x = self.layer3(x)
         x = self.layer4(x)
-        x = self.attnpool(x)
-
-        return x
+        x_glo = self.attnpool(x)
+        # x0= self.attnpool0(x)
+        # x1 = self.attnpool1(x)
+        # x2= self.attnpool2(x)
+        # x3 = self.attnpool3(x)
+        # if not self.training:return x_glo
+        return x_glo
 
 
 class LayerNorm(nn.LayerNorm):
@@ -250,15 +272,48 @@ class ResidualAttentionBlock(nn.Module):
         x = x + self.mlp(self.ln_2(x))
         return x
 
+class ResidualCrossAttentionBlock(nn.Module):
+    def __init__(self, d_model: int, n_head: int, attn_mask: torch.Tensor = None):
+        super().__init__()
 
+        self.attn = nn.MultiheadAttention(d_model, n_head)
+        self.ln_1 = LayerNorm(d_model)
+        self.mlp = nn.Sequential(OrderedDict([
+            ("c_fc", nn.Linear(d_model, d_model * 4)),
+            ("gelu", QuickGELU()),
+            ("c_proj", nn.Linear(d_model * 4, d_model))
+        ]))
+        self.ln_2 = LayerNorm(d_model)
+        self.attn_mask = attn_mask
+
+    def attention(self, q,k,v):
+        self.attn_mask = self.attn_mask.to(dtype=q.dtype, device=q.device) if self.attn_mask is not None else None
+        return self.attn(q, k, v, need_weights=False, attn_mask=self.attn_mask)[0]
+
+    def forward(self, q, k):
+        x = q + self.attention(q, self.ln_1(k), self.ln_1(k))
+        x = x + self.mlp(self.ln_2(x))
+        return x
+    
 class Transformer(nn.Module):
     def __init__(self, width: int, layers: int, heads: int, attn_mask: torch.Tensor = None):
         super().__init__()
         self.width = width
         self.layers = layers
         self.resblocks = nn.Sequential(*[ResidualAttentionBlock(width, heads, attn_mask) for _ in range(layers)])
-
-    def forward(self, x: torch.Tensor):
+        self.type = type
+    def forward(self, x):
+        # if self.training:
+        #     i = 2
+        #     if modal=='visual':
+        #         x_fu1 = self.resblocks[:self.layers-i](x)
+        #         x = self.resblocks[self.layers-i:](x_fu1)
+        #         return torch.cat([x,x_fu1],dim=1)
+        #     elif modal == 'text':
+        #         mix_token = self.resblocks[:self.layers-i](x)
+        #         mlm_token, ori_token = mix_token.chunk(2,dim=1)
+        #         x = self.resblocks[self.layers-i:](mlm_token)
+        #         return torch.cat([x,ori_token],dim=1)
         return self.resblocks(x)
 
 
@@ -283,25 +338,27 @@ class VisionTransformer(nn.Module):
         self.ln_post = LayerNorm(width)
         self.proj = nn.Parameter(scale * torch.randn(width, output_dim))
 
+        
+        # self.style = AdaIN(p=0.5)
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x, modal=None):
         x = self.conv1(x)  # shape = [*, width, grid, grid]
         x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
         x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
         x = torch.cat([self.class_embedding.to(x.dtype) + torch.zeros(x.shape[0], 1, x.shape[-1], dtype=x.dtype, device=x.device), x], dim=1)  # shape = [*, grid ** 2 + 1, width]
         x = x + self.positional_embedding.to(x.dtype)
+
         x = self.ln_pre(x)
 
         x = x.permute(1, 0, 2)  # NLD -> LND
         x = self.transformer(x)
         x = x.permute(1, 0, 2)  # LND -> NLD
-
+    
         # x = self.ln_post(x[:, 0, :])
         x = self.ln_post(x)
 
         if self.proj is not None:
             x = x @ self.proj
-    
         return x
 
 
@@ -357,6 +414,8 @@ class CLIP(nn.Module):
         self.vocab_size = vocab_size
         self.token_embedding = nn.Embedding(vocab_size, transformer_width)
         self.positional_embedding = nn.Parameter(torch.empty(self.context_length, transformer_width))
+        # self.token_embedding.requires_grad_(False)
+        # self.positional_embedding.requires_grad_(False)
         self.ln_final = LayerNorm(transformer_width)
 
         self.text_projection = nn.Parameter(torch.empty(transformer_width, embed_dim))
@@ -405,10 +464,10 @@ class CLIP(nn.Module):
     def dtype(self):
         return self.visual.conv1.weight.dtype
 
-    def encode_image(self, image):
+    def encode_image(self, image, modal=None):
         return self.visual(image.type(self.dtype))
 
-    def encode_text(self, text):
+    def encode_text(self, text, modal=None):
         x = self.token_embedding(text).type(self.dtype)  # [batch_size, n_ctx, d_model]
 
         x = x + self.positional_embedding.type(self.dtype)
@@ -425,8 +484,12 @@ class CLIP(nn.Module):
         return x
 
     def forward(self, image, text):
-        image_features = self.encode_image(image)
-        text_features = self.encode_text(text)
+        if text.size(0)==2*image.size(0) :
+            image_features = self.encode_image(image,modal='visual')
+            text_features = self.encode_text(text,modal='text')
+        else:
+            image_features = self.encode_image(image)
+            text_features = self.encode_text(text)
 
         # # normalized features
         # image_features = image_features / image_features.norm(dim=-1, keepdim=True)
@@ -446,7 +509,6 @@ class CLIP(nn.Module):
     def load_param(self, state_dict):
         # 将pretrained_dict里不属于model_dict的键剔除掉
         param_dict =  {k: v for k, v in state_dict.items() if k in self.state_dict()}
-
         if 'model' in param_dict:
             param_dict = param_dict['model']
         if 'state_dict' in param_dict:
@@ -456,6 +518,25 @@ class CLIP(nn.Module):
                 v = resize_pos_embed(v, self.visual.positional_embedding, self.visual.num_y, self.visual.num_x)
             elif k == 'positional_embedding' and v.shape != self.positional_embedding.shape:
                 v = resize_text_pos_embed(v, self.context_length)
+            # elif 'visual.attnpool' in k and '.positional_embedding' not in k:
+            #     k0 = k.replace('attnpool','attnpool0')
+            #     k1 = k.replace('attnpool','attnpool1')
+            #     k2 = k.replace('attnpool','attnpool2')
+            #     k3 = k.replace('attnpool','attnpool3')
+            #     self.state_dict()[k0].copy_(v)
+            #     self.state_dict()[k1].copy_(v)
+            #     self.state_dict()[k2].copy_(v)
+            #     self.state_dict()[k3].copy_(v)
+            # elif 'visual.transformer.resblocks.11' in k:
+            #     k0 = k.replace('resblocks.11','copy_block.0')
+            #     k1 = k.replace('resblocks.11','copy_block.1')
+            #     k2 = k.replace('resblocks.11','copy_block.2')
+            #     k3 = k.replace('resblocks.11','copy_block.3')
+            #     self.state_dict()[k0].copy_(v)
+            #     self.state_dict()[k1].copy_(v)
+            #     self.state_dict()[k2].copy_(v)
+            #     self.state_dict()[k3].copy_(v)
+                
             try:
                 self.state_dict()[k].copy_(v)
             except:

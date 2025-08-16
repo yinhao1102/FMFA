@@ -6,6 +6,7 @@ import torch.nn as nn
 from collections import OrderedDict
 import torch.nn.functional as F
 
+
 class IRRA(nn.Module):
     def __init__(self, args, num_classes=11003):
         super().__init__()
@@ -16,6 +17,7 @@ class IRRA(nn.Module):
         self.base_model, base_cfg = build_CLIP_from_openai_pretrained(args.pretrain_choice, args.img_size, args.stride_size)
         self.embed_dim = base_cfg['embed_dim']
         self.logit_scale = torch.ones([]) * (1 / args.temperature) 
+
         
         if 'id' in args.loss_names:
             self.classifier = nn.Linear(self.embed_dim, self.num_classes)
@@ -80,34 +82,30 @@ class IRRA(nn.Module):
     def encode_image(self, image):
         image_feats = self.base_model.encode_image(image)
         return image_feats[:, 0, :].float()
-        # return x[:, 0, :].float()
-        # return x.float() # for CLIP ResNet visual model
 
     def encode_text(self, text):
         x = self.base_model.encode_text(text)
         return x[torch.arange(x.shape[0]), text.argmax(dim=-1)].float()
 
-    def forward(self, image, text, ori_text):
-        images = image
-        caption_ids = text
-        ori_caption_ids = ori_text
-        mix_ids = torch.cat([caption_ids,ori_caption_ids],dim=0)
+    def forward(self, batch):
+        ret = dict()
+
+        images = batch['images']
+        caption_ids = batch['caption_ids']
         with torch.autocast(dtype=torch.float16, device_type='cuda'):
-            image_feats, text_feats = self.base_model(images, mix_ids)
-        image_feats, fu_img_feats = image_feats.chunk(2,dim=0)
-        text_feats, fu_txt_feats = text_feats.chunk(2,dim=0)
-        return image_feats.float(), text_feats.float(), fu_img_feats.float(),fu_txt_feats.float()
-        
-        ret = {}
+            image_feats, text_feats = self.base_model(images, caption_ids)
+
         i_feats = image_feats[:, 0, :].float()
+        # i_feats = image_feats.float() # for CLIP ResNet visual model
         t_feats = text_feats[torch.arange(text_feats.shape[0]), caption_ids.argmax(dim=-1)].float()
-        
+
+        logit_scale = self.logit_scale
+
         if 'itc' in self.current_task:
             ret.update({'itc_loss':objectives.compute_itc(i_feats, t_feats, logit_scale)})
         
-        if 'sdm' in self.current_task:
-            ret.update({'sdm_loss':objectives.compute_sdm(i_feats, t_feats, batch['pids'], logit_scale)})
-
+        if 'a-sdm' in self.current_task:
+            ret.update({'a-sdm_loss':objectives.compute_sdm(i_feats, t_feats, batch['pids'], logit_scale, use_weight= self.args.sdm_loss_use_weight)})
 
         if 'cmpm' in self.current_task:
             ret.update({'cmpm_loss':objectives.compute_cmpm(i_feats, t_feats, batch['pids'])})
@@ -186,7 +184,7 @@ class IRRA(nn.Module):
         return ret
 
 
-def build_model(args, num_classes=11003):
+def build_finetune_model(args, num_classes=11003):
     model = IRRA(args, num_classes)
     # covert model to fp16
     convert_weights(model)

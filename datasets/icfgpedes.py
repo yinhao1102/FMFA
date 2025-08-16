@@ -64,7 +64,9 @@ class ICFGPEDES(BaseDataset):
                 captions = anno['captions'] # caption list
                 for caption in captions:
                     dataset.append((pid, image_id, img_path, caption))
+                    
                 image_id += 1
+
             for idx, pid in enumerate(pid_container):
                 # check pid begin from 0 and no break
                 assert idx == pid, f"idx: {idx} and pid: {pid} are not match"
@@ -102,3 +104,10 @@ class ICFGPEDES(BaseDataset):
             raise RuntimeError("'{}' is not available".format(self.img_dir))
         if not op.exists(self.anno_path):
             raise RuntimeError("'{}' is not available".format(self.anno_path))
+import re
+
+def remove_punctuation_and_spaces(text):
+    # 使用正则表达式去掉标点符号和空格
+    cleaned_text = re.sub(r'[^\w\s]', ' ', text)
+    # cleaned_text = re.sub(r'\s+', '', cleaned_text)
+    return cleaned_text

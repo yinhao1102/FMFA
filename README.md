@@ -1,9 +1,12 @@
+# Cross-modal Full-mode Fine-grained Alignment for Text-to-Image Person Retrieval
+![](images/fmfa.png)
+
 ## Requirements and Datasets
 Same as [IRRA](https://github.com/anosorae/IRRA)
 
 ## Usage
 ### Requirements
-we use single RTX3090 24G GPU for training and evaluation. 
+we use single Nvidia A6000 48G GPU for training and evaluation. 
 ```
 pytorch 1.9.0
 torchvision 0.10.0
@@ -35,20 +38,13 @@ Organize them in `your dataset root dir` folder as follows:
 |       |-- data_captions.json
 ```
 
+### Prepart Pre-train Model Checkpoint
+Download the pre-train model checkpoints from [NAM](https://github.com/WentaoTan/MLLM4Text-ReID) and [HAM](https://github.com/sssaury/HAM).
 
 ## Training
 
-```python
-python train.py \
---name fmfa \
---img_aug \
---batch_size 64 \
---MLM \
---loss_names 'a-sdm+mlm+id+efa' \
---dataset_name 'CUHK-PEDES' \
---root_dir 'your dataset root dir' \
---num_epoch 60
-```
+To train the model with the backbone without pretrained in the Re-ID domain, you can run the [run.sh](run.sh). 
+To train the model with the backbone without pretrained in the Re-ID domain, you can run the [finetune.sh](finetune.sh). 
 
 ## Testing
 

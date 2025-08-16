@@ -8,7 +8,8 @@ import logging
 
 def rank(similarity, q_pids, g_pids, max_rank=10, get_mAP=True):
     if get_mAP:
-        indices = torch.argsort(similarity, dim=1, descending=True)
+        indices = torch.argsort(similarity.data.cpu(), dim=1, descending=True)
+        indices = indices.to(similarity.device)
     else:
         # acclerate sort with topk
         _, indices = torch.topk(
@@ -43,7 +44,7 @@ class Evaluator():
     def __init__(self, img_loader, txt_loader):
         self.img_loader = img_loader # gallery
         self.txt_loader = txt_loader # query
-        self.logger = logging.getLogger("FMFA.eval")
+        self.logger = logging.getLogger("IRRA.eval")
 
     def _compute_embedding(self, model):
         model = model.eval()
@@ -56,7 +57,7 @@ class Evaluator():
             with torch.no_grad():
                 text_feat = model.encode_text(caption)
             qids.append(pid.view(-1)) # flatten 
-            qfeats.append(text_feat)
+            qfeats.append(text_feat.data.cpu())
         qids = torch.cat(qids, 0)
         qfeats = torch.cat(qfeats, 0)
 
@@ -66,11 +67,11 @@ class Evaluator():
             with torch.no_grad():
                 img_feat = model.encode_image(img)
             gids.append(pid.view(-1)) # flatten 
-            gfeats.append(img_feat)
+            gfeats.append(img_feat.data.cpu())
         gids = torch.cat(gids, 0)
         gfeats = torch.cat(gfeats, 0)
 
-        return qfeats, gfeats, qids, gids
+        return qfeats.cuda(), gfeats.cuda(), qids, gids
     
     def eval(self, model, i2t_metric=False):
 

@@ -1,9 +1,8 @@
 import os.path as op
 from typing import List
-
 from utils.iotools import read_json
 from .bases import BaseDataset
-
+import random
 
 class CUHKPEDES(BaseDataset):
     """
@@ -39,7 +38,6 @@ class CUHKPEDES(BaseDataset):
         self._check_before_run()
 
         self.train_annos, self.test_annos, self.val_annos = self._split_anno(self.anno_path)
-
         self.train, self.train_id_container = self._process_anno(self.train_annos, training=True)
         self.test, self.test_id_container = self._process_anno(self.test_annos)
         self.val, self.val_id_container = self._process_anno(self.val_annos)
@@ -48,7 +46,7 @@ class CUHKPEDES(BaseDataset):
             self.logger.info("=> CUHK-PEDES Images and Captions are loaded")
             self.show_dataset_info()
 
-
+        
     def _split_anno(self, anno_path: str):
         train_annos, test_annos, val_annos = [], [], []
         annos = read_json(anno_path)
@@ -61,8 +59,9 @@ class CUHKPEDES(BaseDataset):
                 val_annos.append(anno)
         return train_annos, test_annos, val_annos
 
-  
+    
     def _process_anno(self, annos: List[dict], training=False):
+
         pid_container = set()
         if training:
             dataset = []
@@ -74,6 +73,7 @@ class CUHKPEDES(BaseDataset):
                 captions = anno['captions'] # caption list
                 for caption in captions:
                     dataset.append((pid, image_id, img_path, caption))
+                
                 image_id += 1
             for idx, pid in enumerate(pid_container):
                 # check pid begin from 0 and no break
@@ -112,3 +112,10 @@ class CUHKPEDES(BaseDataset):
             raise RuntimeError("'{}' is not available".format(self.img_dir))
         if not op.exists(self.anno_path):
             raise RuntimeError("'{}' is not available".format(self.anno_path))
+import re
+
+def remove_punctuation_and_spaces(text):
+    # 使用正则表达式去掉标点符号和空格
+    cleaned_text = re.sub(r'[^\w\s]', ' ', text)
+    # cleaned_text = re.sub(r'\s+', '', cleaned_text)
+    return cleaned_text

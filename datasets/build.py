@@ -2,20 +2,21 @@ import logging
 import torch
 import torchvision.transforms as T
 from torch.utils.data import DataLoader
+from datasets.luperson import LuPerson_PEDES
 from datasets.sampler import RandomIdentitySampler
 from datasets.sampler_ddp import RandomIdentitySampler_DDP
 from torch.utils.data.distributed import DistributedSampler
 
 from utils.comm import get_world_size
 
-from .bases import ImageDataset, TextDataset, ImageTextDataset, ImageTextMLMDataset
+from .bases import FilterDataset, ImageDataset, TextDataset, ImageTextDataset, ImageTextMLMDataset
 
 from .cuhkpedes import CUHKPEDES
 from .icfgpedes import ICFGPEDES
 from .rstpreid import RSTPReid
 
-__factory = {'CUHK-PEDES': CUHKPEDES, 'ICFG-PEDES': ICFGPEDES, 'RSTPReid': RSTPReid}
-
+__factory = {'CUHK-PEDES': CUHKPEDES, 'ICFG-PEDES': ICFGPEDES, 'RSTPReid': RSTPReid,
+            'LuPerson_PEDES':LuPerson_PEDES,}
 
 def build_transforms(img_size=(384, 128), aug=False, is_train=True):
     height, width = img_size
@@ -83,9 +84,16 @@ def build_dataloader(args, tranforms=None):
                                           is_train=False)
 
         if args.MLM:
-            train_set = ImageTextMLMDataset(dataset.train,
-                                     train_transforms,
-                                     text_length=args.text_length)
+            if args.pretrain:
+                syn_dataset = __factory[args.pretrain](root=args.root_dir)
+                train_set = ImageTextMLMDataset(syn_dataset.train,
+                                        train_transforms,
+                                        text_length=args.text_length)
+                num_classes = len(syn_dataset.train)
+            else:
+                train_set = ImageTextMLMDataset(dataset.train,
+                                        train_transforms,
+                                        text_length=args.text_length)
         else:
             train_set = ImageTextDataset(dataset.train,
                                      train_transforms,
@@ -131,6 +139,9 @@ def build_dataloader(args, tranforms=None):
         val_txt_set = TextDataset(ds['caption_pids'],
                                   ds['captions'],
                                   text_length=args.text_length)
+        # val_txt_set2 = TextDataset(ds['caption_pids'],
+        #                           ds['inblip'],
+        #                           text_length=args.text_length)
 
         val_img_loader = DataLoader(val_img_set,
                                     batch_size=args.batch_size,
@@ -140,9 +151,12 @@ def build_dataloader(args, tranforms=None):
                                     batch_size=args.batch_size,
                                     shuffle=False,
                                     num_workers=num_workers)
+        # val_txt_loader2 = DataLoader(val_txt_set2,
+        #                             batch_size=args.batch_size,
+        #                             shuffle=False,
+        #                             num_workers=num_workers)
 
         return train_loader, val_img_loader, val_txt_loader, num_classes
-
     else:
         # build dataloader for testing
         if tranforms:
@@ -167,3 +181,98 @@ def build_dataloader(args, tranforms=None):
                                      shuffle=False,
                                      num_workers=num_workers)
         return test_img_loader, test_txt_loader, num_classes
+
+
+def build_zero_shot_loader(args, finetune=False):
+    logger = logging.getLogger("IRRA.dataset")
+
+    num_workers = args.num_workers
+    dataset0 = __factory['CUHK-PEDES'](root=args.root_dir)
+    dataset1 = __factory['ICFG-PEDES'](root=args.root_dir)
+    dataset2 = __factory['RSTPReid'](root=args.root_dir)
+
+    train_transforms = build_transforms(img_size=args.img_size,
+                                            aug=args.img_aug,
+                                            is_train=True)
+    val_transforms = build_transforms(img_size=args.img_size,
+                                          is_train=False)
+    
+    ds = dataset0.test
+    val_img_set = ImageDataset(ds['image_pids'], ds['img_paths'],
+                                val_transforms)
+    val_txt_set = TextDataset(ds['caption_pids'],
+                                ds['captions'],
+                                text_length=args.text_length)
+    val_img_loader0 = DataLoader(val_img_set,
+                                batch_size=args.batch_size,
+                                shuffle=False,
+                                num_workers=num_workers)
+    val_txt_loader0 = DataLoader(val_txt_set,
+                                batch_size=args.batch_size,
+                                shuffle=False,
+                                num_workers=num_workers)
+    
+    ds = dataset1.test
+    val_img_set = ImageDataset(ds['image_pids'], ds['img_paths'],
+                                val_transforms)
+    val_txt_set = TextDataset(ds['caption_pids'],
+                                ds['captions'],
+                                text_length=args.text_length)
+    val_img_loader1 = DataLoader(val_img_set,
+                                batch_size=args.batch_size,
+                                shuffle=False,
+                                num_workers=num_workers)
+    val_txt_loader1 = DataLoader(val_txt_set,
+                                batch_size=args.batch_size,
+                                shuffle=False,
+                                num_workers=num_workers)
+    
+    ds = dataset2.test
+    val_img_set = ImageDataset(ds['image_pids'], ds['img_paths'],
+                                val_transforms)
+    val_txt_set = TextDataset(ds['caption_pids'],
+                                ds['captions'],
+                                text_length=args.text_length)
+    val_img_loader2 = DataLoader(val_img_set,
+                                batch_size=args.batch_size,
+                                shuffle=False,
+                                num_workers=num_workers)
+    val_txt_loader2 = DataLoader(val_txt_set,
+                                batch_size=args.batch_size,
+                                shuffle=False,
+                                num_workers=num_workers)
+    if finetune:
+        syn_dataset = __factory[args.dataset_name](root=args.root_dir)
+    else:
+        syn_dataset = __factory[args.dataset_name](root=args.root_dir)
+    train_set = ImageTextMLMDataset(syn_dataset.train,
+                            train_transforms,
+                            text_length=args.text_length)
+    num_classes = len(syn_dataset.train)
+
+    logger.info('using random sampler')
+    train_loader = DataLoader(train_set,
+                                batch_size=args.batch_size,
+                                shuffle=True,
+                                num_workers=num_workers,
+                                )
+
+    return syn_dataset.train, train_loader, val_img_loader0, val_txt_loader0, val_img_loader1, val_txt_loader1, val_img_loader2, val_txt_loader2, num_classes
+
+def build_filter_loader(args, dataset):
+    logger = logging.getLogger("IRRA.dataset")
+
+    num_workers = args.num_workers
+
+    train_transforms = build_transforms(img_size=args.img_size,
+                                            aug=args.img_aug,
+                                            is_train=True)
+    train_set = FilterDataset(dataset,
+                            train_transforms,
+                            text_length=args.text_length)
+    train_loader = DataLoader(train_set,
+                                batch_size=args.batch_size,
+                                shuffle=True,
+                                num_workers=num_workers)
+
+    return train_loader

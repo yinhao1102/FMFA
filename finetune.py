@@ -1,6 +1,7 @@
 import collections
 import os
 import os.path as op
+from model.build_finetune import build_finetune_model
 import torch
 import numpy as np
 import random
@@ -10,13 +11,12 @@ import torch.nn as nn
 from datasets import build_dataloader
 from datasets.bases import ImageTextMLMDataset
 from datasets.build import build_zero_shot_loader
-from processor.processor import do_pretrain
 from processor.processor_finetune import do_train
 from utils.checkpoint import Checkpointer
 from utils.iotools import save_train_configs
 from utils.logger import setup_logger
 from solver import build_optimizer, build_lr_scheduler
-from model import build_model,build_finetune_model
+from model import build_model
 from utils.metrics import Evaluator
 from utils.options import get_args
 from utils.comm import get_rank, synchronize
@@ -54,11 +54,8 @@ if __name__ == '__main__':
     save_train_configs(args.output_dir, args)
 
     # get image-text pair datasets dataloader
-    trainset ,train_loader, val_img_loader0, val_txt_loader0, val_img_loader1, val_txt_loader1, val_img_loader2, val_txt_loader2, num_classes = build_zero_shot_loader(args)
-    if args.nam:
-        model = build_model(args, num_classes)
-    else:
-        model = build_finetune_model(args, num_classes)
+    trainset ,train_loader, val_img_loader0, val_txt_loader0, val_img_loader1, val_txt_loader1, val_img_loader2, val_txt_loader2, num_classes = build_zero_shot_loader(args,finetune=True)
+    model = build_finetune_model(args, num_classes)
     logger.info('Total params: %2.fM' % (sum(p.numel() for p in model.parameters()) / 1000000.0))
     if args.finetune:
         logger.info("loading {} model".format(args.finetune))
@@ -67,7 +64,7 @@ if __name__ == '__main__':
             refine_k = k.replace('module.','')
             param_dict[refine_k] = param_dict[k].detach().clone()
             del param_dict[k]
-        model.load_state_dict(param_dict)
+        model.load_state_dict(param_dict, False)
     # model = model.float()
     model.cuda()
     model = nn.DataParallel(model)
@@ -94,7 +91,6 @@ if __name__ == '__main__':
         checkpoint = checkpointer.resume(args.resume_ckpt_file)
         start_epoch = checkpoint['epoch']
 
-    if args.nam:
-        do_pretrain(start_epoch, args, model, train_loader, evaluator0,evaluator1,evaluator2, optimizer, scheduler, checkpointer, trainset)
-    else:
-        do_train(start_epoch, args, model, train_loader, evaluator0,evaluator1,evaluator2, optimizer, scheduler, checkpointer, trainset)
+    
+    do_train(start_epoch, args, model, train_loader, evaluator0,evaluator1,evaluator2, optimizer, scheduler, checkpointer, trainset)
+

@@ -1,4 +1,5 @@
 from typing import List
+import numpy as np
 from torch.utils.data import Dataset
 import os.path as osp
 import logging
@@ -81,6 +82,8 @@ class ImageTextDataset(Dataset):
         tokens = tokenize(caption, tokenizer=self.tokenizer, text_length=self.text_length, truncate=self.truncate)
 
         ret = {
+            'img_path':img_path,
+            'caption':caption,
             'pids': pid,
             'image_ids': image_id,
             'images': img,
@@ -129,6 +132,10 @@ class TextDataset(Dataset):
 
         return pid, caption
 
+def softmax(x):
+        """Compute softmax values for each sets of scores in x."""
+        e_x = np.exp(x - np.max(x))
+        return e_x / e_x.sum()
 
 class ImageTextMLMDataset(Dataset):
     def __init__(self,
@@ -142,6 +149,7 @@ class ImageTextMLMDataset(Dataset):
         self.truncate = truncate
 
         self.tokenizer = SimpleTokenizer()
+        
 
     def __len__(self):
         return len(self.dataset)
@@ -151,18 +159,16 @@ class ImageTextMLMDataset(Dataset):
         img = read_image(img_path)
         if self.transform is not None:
             img = self.transform(img)
-        
+
         caption_tokens = tokenize(caption, tokenizer=self.tokenizer, text_length=self.text_length, truncate=self.truncate)
-
         mlm_tokens, mlm_labels = self._build_random_masked_tokens_and_labels(caption_tokens.cpu().numpy())
-
         ret = {
             'pids': pid,
             'image_ids': image_id,
             'images': img,
             'caption_ids': caption_tokens,
             'mlm_ids': mlm_tokens,
-            'mlm_labels': mlm_labels
+            'mlm_labels': mlm_labels,
         }
 
         return ret
@@ -183,6 +189,103 @@ class ImageTextMLMDataset(Dataset):
                 # mask token with 15% probability
                 if prob < 0.15:
                     prob /= 0.15
+
+                    # 80% randomly change token to mask token
+                    if prob < 0.8:
+                        tokens[i] = mask
+
+                    # 10% randomly change token to random token
+                    elif prob < 0.9:
+                        tokens[i] = random.choice(token_range)
+
+                    # -> rest 10% randomly keep current token
+
+                    # append current token to output (we will predict these later)
+                    labels.append(token)
+                else:
+                    # no masking token (will be ignored by loss function later)
+                    labels.append(0)
+            else:
+                labels.append(0)
+        
+        if all(l == 0 for l in labels):
+            # at least mask 1
+            labels[1] = tokens[1]
+            tokens[1] = mask
+
+        return torch.tensor(tokens), torch.tensor(labels)
+    
+class FilterDataset(Dataset):
+    def __init__(self,
+                 dataset,
+                 transform=None,
+                 text_length: int = 77,
+                 truncate: bool = True):
+        self.dataset = dataset
+        self.transform = transform
+        self.text_length = text_length
+        self.truncate = truncate
+
+        self.tokenizer = SimpleTokenizer()
+        
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, index):
+        pid, image_id, img_path, caption, sim = self.dataset[index]
+        img = read_image(img_path)
+        if self.transform is not None:
+            img = self.transform(img)
+            
+        caption_tokens = tokenize(caption, tokenizer=self.tokenizer, text_length=self.text_length, truncate=self.truncate)
+        mlm_tokens, mlm_labels = self._build_random_masked_tokens_and_labels(caption_tokens.cpu().numpy(), sim)
+        ori_tokens =  tokenize(caption, tokenizer=self.tokenizer, text_length=self.text_length, truncate=self.truncate)
+
+        ret = {
+            'pids': pid,
+            'image_ids': image_id,
+            'images': img,
+            'caption_ids': caption_tokens,
+            'mlm_ids': mlm_tokens,
+            'mlm_labels': mlm_labels,
+            'caption_ids_ori':ori_tokens
+        }
+        
+        return ret
+
+    def _build_random_masked_tokens_and_labels(self, tokens, sim):
+        """
+        Masking some random tokens for Language Model task with probabilities as in the original BERT paper.
+        :param tokens: list of int, tokenized sentence.
+        :return: (list of int, list of int), masked tokens and related labels for MLM prediction
+        """
+        mask = self.tokenizer.encoder["<|mask|>"]
+        token_range = list(range(1, len(self.tokenizer.encoder)-3)) # 1 ~ 49405
+        
+        labels = []
+        
+        if tokens[-1] == 0:
+            valid_token_num = np.where(tokens == 0)[0][0]
+        else:
+            valid_token_num = len(tokens)
+        ori_sim = np.array(sim)
+        ori_pro = 1 - ori_sim
+        if ori_pro[-1] != 0.15:
+            valid_prob = ori_pro[1:valid_token_num-1]
+            # normalize the probisibility to match E = 0.15
+            mean_prob = np.mean(valid_prob)
+            normed_prob = valid_prob - mean_prob
+            normalized_prob = normed_prob + 0.15
+            normalized_prob = np.clip(normalized_prob, 0, 1)
+            ori_pro[1:valid_token_num-1] = normalized_prob
+        
+        for i, token in enumerate(tokens):
+            if 0 < token < 49405:
+                prob = random.random()
+                # mask token with 15% probability
+                if prob < ori_pro[i]:
+                    prob /= ori_pro[i]
 
                     # 80% randomly change token to mask token
                     if prob < 0.8:

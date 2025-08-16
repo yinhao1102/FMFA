@@ -12,7 +12,7 @@ from torch.utils.tensorboard import SummaryWriter
 from prettytable import PrettyTable
 import torch.nn.functional as F
 
-def do_pretrain(start_epoch, args, model, train_loader, evaluator0,evaluator1,evaluator2, optimizer,
+def do_train(start_epoch, args, model, train_loader, evaluator0,evaluator1,evaluator2, optimizer,
              scheduler, checkpointer, trainset):
 
     log_period = args.log_period
@@ -26,15 +26,16 @@ def do_pretrain(start_epoch, args, model, train_loader, evaluator0,evaluator1,ev
     logger = logging.getLogger("IRRA.train")
     if get_rank() == 0:
         logger.info("Validation before training - Epoch: {}".format(-1))
-        # top1 = evaluator0.eval(model.module.eval())
-        # top1 = evaluator1.eval(model.module.eval())
-        # top1 = evaluator2.eval(model.module.eval())
+        top1 = evaluator0.eval(model.module.eval())
+        top1 = evaluator1.eval(model.module.eval())
+        top1 = evaluator2.eval(model.module.eval())
     logger.info('start training')
 
     meters = {
         "loss": AverageMeter(),
-        "sdm_loss": AverageMeter(),
+        "a-sdm_loss": AverageMeter(),
         "itc_loss": AverageMeter(),
+        "efa_loss": AverageMeter(),
         "id_loss": AverageMeter(),
         "mlm_loss": AverageMeter(),
         "img_acc": AverageMeter(),
@@ -50,41 +51,30 @@ def do_pretrain(start_epoch, args, model, train_loader, evaluator0,evaluator1,ev
 
     # train
     for epoch in range(start_epoch, num_epoch + 1):
-        with torch.no_grad():
-            if epoch % 1 == 0: 
-                logger.info('Reconstruct the train loader')
-                train_loader = build_filter_loader(args, trainset)
-        
         start_time = time.time()
         for meter in meters.values():
             meter.reset()
         model.train()
 
         for n_iter, batch in enumerate(train_loader):
-            # batch = {k: v.cuda() for k, v in batch.items()}
-
-            image = batch['images'].cuda()
-            text = batch['caption_ids'].cuda()
-            ori_text = batch['caption_ids_ori'].cuda()
-
-            i_feats, text_feats,fu_i_feats,fu_t_feats = model(image, text, ori_text)
-
-            caption_ids = text
-            t_feats = text_feats[torch.arange(text_feats.shape[0]), caption_ids.argmax(dim=-1)].float()
-            logit_scale = torch.ones([]) * (1 / args.temperature) 
-            
-            loss_sdm = objectives.compute_sdm(i_feats[:,0,:], t_feats, batch['pids'].cuda(), logit_scale)
-            
-            total_loss = loss_sdm
-            with torch.no_grad():
-                similarity_matrix = torch.einsum('nld,nkd->nlk', [F.normalize(fu_t_feats,dim=-1), F.normalize(fu_i_feats[:,1:,:],dim=-1)])
-                similarity_matrix = similarity_matrix.max(-1)[0]
-                for idx, sim in zip(batch['image_ids'].data, similarity_matrix):
-                    trainset[idx][-1] = sim.data.cpu().numpy()
+            batch = {k: v.cuda() for k, v in batch.items()}
+           
+            ret = model(batch)
+            ret = {key: values.mean() for key, values in ret.items()}
+            total_loss = sum([v for k, v in ret.items() if "loss" in k])
 
             batch_size = batch['images'].shape[0]
+            
             meters['loss'].update(total_loss.item(), batch_size)
-            meters['sdm_loss'].update(loss_sdm, batch_size)
+            meters['a-sdm_loss'].update(ret.get('a-sdm_loss', 0), batch_size)
+            meters['itc_loss'].update(ret.get('itc_loss', 0), batch_size)
+            meters['id_loss'].update(ret.get('id_loss', 0), batch_size)
+            meters['mlm_loss'].update(ret.get('mlm_loss', 0), batch_size)
+            meters['efa_loss'].update(ret.get('efa_loss', 0), batch_size)
+
+            meters['img_acc'].update(ret.get('img_acc', 0), batch_size)
+            meters['txt_acc'].update(ret.get('txt_acc', 0), batch_size)
+            meters['mlm_acc'].update(ret.get('mlm_acc', 0), 1)
 
             optimizer.zero_grad()
             total_loss.backward()

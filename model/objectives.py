@@ -1,16 +1,42 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
+
+def find_mutual_nearest_neighbors(image_features, text_features, k):
+    # 归一化特征向量
+    image_features = F.normalize(image_features, p=2, dim=1)
+    text_features = F.normalize(text_features, p=2, dim=1)
+
+    # 计算余弦相似度
+    image_text_similarities = torch.matmul(image_features, text_features.t())
+    text_image_similarities = torch.matmul(text_features, image_features.t())
+
+    # 找到图片特征的 k 个文本近邻
+    _, image_to_text_nearest_neighbors = torch.topk(image_text_similarities, k, dim=1)
+    _, text_to_image_nearest_neighbors = torch.topk(text_image_similarities, k, dim=1)
+
+    mutual_nearest_neighbors = torch.zeros([image_features.size(0),text_features.size(0)])
+    for i in range(image_features.size(0)):
+        image_k_nearest = image_to_text_nearest_neighbors[i]
+        text_k_nearest = text_to_image_nearest_neighbors[image_k_nearest]
+        
+        # 检查是否当前图片是文本的 k 近邻之一
+        has_mutual = torch.where(text_k_nearest == i, 1, 0).sum(dim=1)
+        mutual_text_index = has_mutual.nonzero()
+        if len(mutual_text_index) !=0:
+            for idx in mutual_text_index:
+                mutual_nearest_neighbors[i,image_k_nearest[idx]] = 1
 
 
-def compute_sdm(image_fetures, text_fetures, pid, logit_scale, image_id=None, factor=0.3, epsilon=1e-8):
-    """
-    Similarity Distribution Matching
-    """
+    return mutual_nearest_neighbors
+
+def compute_part(image_fetures, text_fetures, pid, logit_scale, image_id=None, factor=0.3, epsilon=1e-6):
     batch_size = image_fetures.shape[0]
     pid = pid.reshape((batch_size, 1)) # make sure pid size is [batch_size, 1]
+    
     pid_dist = pid - pid.t()
-    labels = (pid_dist == 0).float()
+    labels = (pid_dist == 0).to(torch.int)
 
     if image_id != None:
         # print("Mix PID and ImageID to create soft label.")
@@ -28,7 +54,14 @@ def compute_sdm(image_fetures, text_fetures, pid, logit_scale, image_id=None, fa
 
     text_proj_image = logit_scale * t2i_cosine_theta
     image_proj_text = logit_scale * i2t_cosine_theta
-
+    # ['trousers','genders','belongings','shoes','top','hairstyle']
+    # text_proj_text =  F.softmax(logit_scale * text_norm @ text_norm.t(),dim=1)
+    # labels = torch.where(text_proj_text>0.4,1,0) | labels
+    k = 5 if text_fetures.size(0) > 5 else text_fetures.size(0)
+    t2i_labels = find_mutual_nearest_neighbors(text_fetures,image_fetures,k=k).to(text_fetures.device).to(torch.int)
+    i2t_labels = find_mutual_nearest_neighbors(image_fetures,text_fetures,k=k).to(text_fetures.device).to(torch.int)
+    
+    labels = (i2t_labels * t2i_labels) | labels
     # normalize the true matching distribution
     labels_distribute = labels / labels.sum(dim=1)
 
@@ -41,12 +74,31 @@ def compute_sdm(image_fetures, text_fetures, pid, logit_scale, image_id=None, fa
 
     return loss
 
-def compute_a_sdm(image_fetures, text_fetures, pid, logit_scale, alpha_i2t, alpha_t2i, image_id=None, factor=0.3, epsilon=1e-8):
+def compute_patch(image_fetures, text_fetures, pid, logit_scale, image_id=None, factor=0.3, epsilon=1e-8):
+    """
+    Similarity Distribution Matching
+    """
+    batch_size,length,num_dim = image_fetures.size() #32,192,512
+    patch_feats = image_fetures.reshape(batch_size*length,num_dim)
+    patch_feats = patch_feats / patch_feats.norm(dim=1, keepdim=True)
+    text_fetures = text_fetures/ text_fetures.norm(dim=1, keepdim=True)
+    sim_i2t = patch_feats @ text_fetures.t()
+    sim_t2i = text_fetures @ patch_feats.t()
+
+    label_i2t = sim_i2t.argmax(dim=-1)
+    label_t2i = sim_t2i.argmax(dim=-1)
+    loss = F.cross_entropy(logit_scale * sim_i2t, label_i2t) + F.cross_entropy(logit_scale * sim_t2i, label_t2i)
+    
+    return loss
+
+
+def compute_sdm(image_fetures, text_fetures, pid, logit_scale, image_id=None, factor=0.3, epsilon=1e-8, use_weight = False):
     """
     Similarity Distribution Matching
     """
     batch_size = image_fetures.shape[0]
     pid = pid.reshape((batch_size, 1)) # make sure pid size is [batch_size, 1]
+    
     pid_dist = pid - pid.t()
     labels = (pid_dist == 0).float()
 
@@ -75,61 +127,48 @@ def compute_a_sdm(image_fetures, text_fetures, pid, logit_scale, alpha_i2t, alph
     t2i_pred = F.softmax(text_proj_image, dim=1)
     t2i_loss = t2i_pred * (F.log_softmax(text_proj_image, dim=1) - torch.log(labels_distribute + epsilon))
 
-    i2t_sim_max_idx = image_proj_text.argmax(dim=1)
-    t2i_sim_max_idx = text_proj_image.argmax(dim=1)
-    label_max_idx = labels_distribute.argmax(dim=1)
+    if use_weight:
+        i2t_sim_max_idx = image_proj_text.argmax(dim=1)
+        t2i_sim_max_idx = text_proj_image.argmax(dim=1)
+        label_max_idx = labels_distribute.argmax(dim=1)
 
-    i2t_mask = i2t_sim_max_idx != label_max_idx
-    diff_i2t = i2t_cosine_theta[torch.arange(i2t_cosine_theta.shape[0]), i2t_sim_max_idx] - i2t_cosine_theta[torch.arange(i2t_cosine_theta.shape[0]), label_max_idx]
-    diff_i2t[~i2t_mask] = 0
-    diff_i2t = diff_i2t * alpha_i2t + 1
+        # 计算满足条件的差值
+        i2t_mask = i2t_sim_max_idx != label_max_idx  # 找到不匹配的行
+        diff_i2t = i2t_cosine_theta[torch.arange(i2t_cosine_theta.shape[0]), i2t_sim_max_idx] - i2t_cosine_theta[torch.arange(i2t_cosine_theta.shape[0]), label_max_idx]
+        diff_i2t[~i2t_mask] = 0  # 这里设为 0， 你也可以改成 torch.nan
 
-    t2i_mask = t2i_sim_max_idx != label_max_idx 
-    diff_t2i = t2i_cosine_theta[torch.arange(t2i_cosine_theta.shape[0]), t2i_sim_max_idx] - t2i_cosine_theta[torch.arange(t2i_cosine_theta.shape[0]), label_max_idx]
-    diff_t2i[~t2i_mask] = 0
-    diff_t2i = diff_t2i * alpha_t2i + 1
+        # print(f"diff_i2t max:{torch.max(diff_i2t).item()}")
+        # print(f"diff_i2t min:{torch.min(diff_i2t).item()}")
+        # diff_i2t_max = torch.max(diff_i2t)
+        # if diff_i2t_max <= 0 or diff_i2t_max <= 1e-6:
+        #     diff_i2t_weight = 1
+        # else:
+        #     i2t_log_val = torch.log10(diff_i2t_max)
+        #     i2t_power = -math.floor(i2t_log_val)
+        #     diff_i2t_weight = 10 ** i2t_power   
+        diff_i2t = diff_i2t * 0.1 + 1
 
-    loss = torch.mean(diff_i2t *torch.sum(i2t_loss, dim=1)) + torch.mean(diff_t2i *torch.sum(t2i_loss, dim=1))
+        t2i_mask = t2i_sim_max_idx != label_max_idx  # 找到不匹配的行
+        diff_t2i = t2i_cosine_theta[torch.arange(t2i_cosine_theta.shape[0]), t2i_sim_max_idx] - t2i_cosine_theta[torch.arange(t2i_cosine_theta.shape[0]), label_max_idx]
+        diff_t2i[~t2i_mask] = 0  # 这里设为 0， 你也可以改成 torch.nan
+
+        # print(f"diff_t2i max:{torch.max(diff_t2i).item()}")
+        # print(f"diff_t2i min:{torch.min(diff_t2i).item()}")
+        # diff_t2i_max = torch.max(diff_t2i)
+        # if diff_t2i_max <= 0 or diff_t2i_max <= 1e-6:
+        #     diff_t2i_weight = 1  # 或者设为一个极大值/报错处理
+        # else:
+        #     t2i_log_val = torch.log10(diff_t2i_max)
+        #     t2i_power = -math.floor(t2i_log_val)
+        #     diff_t2i_weight = 10 ** t2i_power   
+        diff_t2i = diff_t2i * 0.1 + 1
+
+        loss = torch.mean(diff_i2t *torch.sum(i2t_loss, dim=1)) + torch.mean(diff_t2i *torch.sum(t2i_loss, dim=1))
+    else:
+        loss = torch.mean(torch.sum(i2t_loss, dim=1)) + torch.mean(torch.sum(t2i_loss, dim=1))
 
     return loss
 
-def compute_infonce_loss_cosine(X, C, margin=0.2, sim_temperature=0.1, efa_tempurature=1.0):
-    X_norm = F.normalize(X, p=2, dim=-1)
-    C_norm = F.normalize(C, p=2, dim=-1)
-    X_norm = X_norm.unsqueeze(1)
-    C_norm = C_norm.unsqueeze(0)
-
-    sim_xc = torch.matmul(X_norm, C_norm.transpose(-2,-1))  # [B, B, L/N, L]
-    # sim_xc = torch.einsum('blc,bjc->bjbl', X_norm, C_norm)
-
-    max_pooled_sim, _ = torch.max(sim_xc, dim=-1)  # [B, L]
-    sims = torch.logsumexp(max_pooled_sim/sim_temperature, dim=-1)
-
-    sims = F.normalize(sims, p=2, dim=-1)
-
-    ## cost of image retrieval
-    img_ret = sims-sims.diag().expand_as(sims).t()+margin
-    img_ret[torch.eye(sims.size(0))>.5] = 0
-    # cost_im = torch.log(torch.sum(torch.exp(img_ret/ efa_tempurature ),dim=1))
-    max_img_ret = torch.max(img_ret, dim=0, keepdim=True)[0]
-    stabilized_img_ret = img_ret - max_img_ret
-    cost_im = torch.log(torch.sum(torch.exp(stabilized_img_ret / efa_tempurature), dim=0)) + max_img_ret
-
-    ## cost of text retrieval
-    txt_ret = sims-sims.diag().expand_as(sims)+margin
-    txt_ret[torch.eye(sims.size(0))>.5] = 0
-    # cost_s = torch.log(torch.sum(torch.exp(txt_ret/ efa_tempurature ),dim=0))
-    max_txt_ret = torch.max(txt_ret, dim=0, keepdim=True)[0]
-    stabilized_txt_ret = txt_ret - max_txt_ret
-    cost_s = torch.log(torch.sum(torch.exp(stabilized_txt_ret / efa_tempurature), dim=0)) + max_txt_ret
-
-    return cost_s.mean() + cost_im.mean()
-
-def compute_efa(text_feat, image_feat, multimodal_feat, margin_t2e, margin_i2e):
-    loaa_ac=compute_infonce_loss_cosine(text_feat, multimodal_feat, margin_t2e)
-    loaa_bc=compute_infonce_loss_cosine(image_feat, multimodal_feat, margin_i2e)
-
-    return loaa_ac+loaa_bc
 
 def compute_mlm(scores, labels):
     ce = nn.CrossEntropyLoss(ignore_index=0)
@@ -154,7 +193,7 @@ def compute_itc(image_features, text_features, logit_scale):
     logits_per_text = logits_per_image.t()
 
     loss_i = F.cross_entropy(logits_per_image, labels)
-    loss_t =F.cross_entropy(logits_per_text, labels)
+    loss_t = F.cross_entropy(logits_per_text, labels)
     loss = (loss_i +  loss_t)/2
 
     return loss
@@ -206,3 +245,50 @@ def compute_cmpm(image_embeddings, text_embeddings, labels, epsilon=1e-8):
 
     return cmpm_loss
 
+def compute_infonce_loss_cosine(X, C, margin=0.2, temperature=1.0):
+    """
+    计算基于余弦相似度的三联体损失: max(Sim(X, C_negative) - Sim(X, C_positive) + margin, 0)
+    :param X: [B, L/N, C] - A 或 B
+    :param C: [B, L, C] - 共享的 C
+    :param margin: 控制正负样本的间隔
+    :return: 平均三联体损失
+    """
+    # 归一化
+    X_norm = F.normalize(X, p=2, dim=-1)
+    C_norm = F.normalize(C, p=2, dim=-1)
+    X_norm = X_norm.unsqueeze(1)
+    C_norm = C_norm.unsqueeze(0)
+
+    # 计算 X 与 C 之间的余弦相似度
+    sim_xc = torch.matmul(X_norm, C_norm.transpose(-2,-1))  # [B, B, L/N, L]
+    # sim_xc = torch.einsum('blc,bjc->bjbl', X_norm, C_norm)
+
+    max_pooled_sim, _ = torch.max(sim_xc, dim=-1)  # [B, L]
+    sims = torch.logsumexp(max_pooled_sim/temperature, dim=-1)
+
+    #先归一化相似度
+    sims = F.normalize(sims, p=2, dim=-1)
+
+    ## cost of image retrieval
+    img_ret = sims-sims.diag().expand_as(sims).t()+margin
+    img_ret[torch.eye(sims.size(0))>.5] = 0
+    # cost_im = torch.log(torch.sum(torch.exp(img_ret/ 1.0 ),dim=1))
+    max_img_ret = torch.max(img_ret, dim=0, keepdim=True)[0]
+    stabilized_img_ret = img_ret - max_img_ret  # 减去最大值
+    cost_im = torch.log(torch.sum(torch.exp(stabilized_img_ret / 1.0), dim=0)) + max_img_ret
+
+    ## cost of text retrieval
+    txt_ret = sims-sims.diag().expand_as(sims)+margin
+    txt_ret[torch.eye(sims.size(0))>.5] = 0
+    # cost_s = torch.log(torch.sum(torch.exp(txt_ret/ 1.0 ),dim=0))
+    max_txt_ret = torch.max(txt_ret, dim=0, keepdim=True)[0]
+    stabilized_txt_ret = txt_ret - max_txt_ret  # 减去最大值
+    cost_s = torch.log(torch.sum(torch.exp(stabilized_txt_ret / 1.0), dim=0)) + max_txt_ret
+
+    return cost_s.mean() + cost_im.mean()
+
+def compute_minmax_info_loss(A, B, C, margin=0.1):
+    loaa_ac=compute_infonce_loss_cosine(A, C, margin=0.1)
+    loaa_bc=compute_infonce_loss_cosine(B, C, margin=0.9)
+
+    return loaa_ac+loaa_bc

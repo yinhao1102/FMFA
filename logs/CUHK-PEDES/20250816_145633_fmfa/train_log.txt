@@ -1,0 +1,88 @@
+2025-08-16 14:56:33,121 IRRA INFO: Using 1 GPUs
+2025-08-16 14:56:33,121 IRRA INFO: Namespace(MLM=True
+ alpha=0.9
+ batch_size=64
+ beta=0.999
+ bias_lr_factor=2.0
+ cmt_depth=4
+ dataset_name='CUHK-PEDES'
+ distributed=False
+ eval_period=1
+ finetune='/home/yinhao/MLLM4Text-ReID/checkpoint/ham_cuhk.pth'
+ gamma=0.1
+ id_loss_weight=1.0
+ img_aug=True
+ img_size=(384
+ 128)
+ local_rank=0
+ log_period=100
+ loss_names='sdm+mlm+id'
+ lr=5e-06
+ lr_factor=5.0
+ lrscheduler='cosine'
+ masked_token_rate=0.8
+ masked_token_unchanged_rate=0.1
+ milestones=(20
+ 40)
+ minmax_loss_weight=1.0
+ mlm_loss_weight=1.0
+ momentum=0.9
+ nam=False
+ name='fmfa'
+ num_epoch=60
+ num_instance=4
+ num_workers=8
+ optimizer='Adam'
+ output_dir='logs/CUHK-PEDES/20250816_145633_fmfa'
+ power=0.9
+ pretrain=''
+ pretrain_choice='ViT-B/16'
+ resume=False
+ resume_ckpt_file=''
+ root_dir='/home/yinhao/IRRA_old/data'
+ sampler='random'
+ sdm_loss_use_weight=True
+ sdm_loss_weight=1.0
+ stride_size=16
+ target_lr=0
+ temperature=0.02
+ test_batch_size=512
+ text_length=77
+ training=True
+ val_dataset='test'
+ vocab_size=49408
+ warmup_epochs=5
+ warmup_factor=0.1
+ warmup_method='linear'
+ weight_decay=4e-05
+ weight_decay_bias=0.0)
+2025-08-16 14:56:34,107 IRRA.dataset INFO: => CUHK-PEDES Images and Captions are loaded
+2025-08-16 14:56:34,107 IRRA.dataset INFO: CUHKPEDES Dataset statistics:
+2025-08-16 14:56:34,108 IRRA.dataset INFO: 
++--------+-------+--------+----------+
+| subset |  ids  | images | captions |
++--------+-------+--------+----------+
+| train  | 11003 | 34054  |  68126   |
+|  test  |  1000 |  3074  |   6156   |
+|  val   |  1000 |  3078  |   6158   |
++--------+-------+--------+----------+
+2025-08-16 14:56:35,528 IRRA.dataset INFO: => ICFG-PEDES Images and Captions are loaded
+2025-08-16 14:56:35,529 IRRA.dataset INFO: ICFGPEDES Dataset statistics:
+2025-08-16 14:56:35,529 IRRA.dataset INFO: 
++--------+------+--------+----------+
+| subset | ids  | images | captions |
++--------+------+--------+----------+
+| train  | 3102 | 34674  |  34674   |
+|  test  | 1000 | 19848  |  19848   |
+|  val   |  0   |   0    |    0     |
++--------+------+--------+----------+
+2025-08-16 14:56:35,623 IRRA.dataset INFO: => RSTPReid Images and Captions are loaded
+2025-08-16 14:56:35,623 IRRA.dataset INFO: RSTPReid Dataset statistics:
+2025-08-16 14:56:35,624 IRRA.dataset INFO: 
++--------+------+--------+----------+
+| subset | ids  | images | captions |
++--------+------+--------+----------+
+| train  | 3701 | 18505  |  37010   |
+|  test  | 200  |  1000  |   2000   |
+|  val   | 200  |  1000  |   2000   |
++--------+------+--------+----------+
