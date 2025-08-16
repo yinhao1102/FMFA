@@ -51,3 +51,6 @@ To train the model with the backbone without pretrained in the Re-ID domain, you
 ```python
 python test.py --config_file 'path/to/model_dir/configs.yaml'
 ```
+
+## Acknowledgments
+This repo borrows partially from [IRRA](https://github.com/anosorae/IRRA), [NAM](https://github.com/WentaoTan/MLLM4Text-ReID) and [HAM](https://github.com/sssaury/HAM).
