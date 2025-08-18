@@ -105,9 +105,8 @@ class IRRA(nn.Module):
         if 'itc' in self.current_task:
             ret.update({'itc_loss':objectives.compute_itc(i_feats, t_feats, logit_scale)})
         
-        if 'sdm' in self.current_task:
+        if 'a-sdm' in self.current_task:
             ret.update({'sdm_loss':objectives.compute_sdm(i_feats, t_feats, batch['pids'], logit_scale)})
-
 
         if 'cmpm' in self.current_task:
             ret.update({'cmpm_loss':objectives.compute_cmpm(i_feats, t_feats, batch['pids'])})

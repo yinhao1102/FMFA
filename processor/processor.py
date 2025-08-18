@@ -33,8 +33,9 @@ def do_pretrain(start_epoch, args, model, train_loader, evaluator0,evaluator1,ev
 
     meters = {
         "loss": AverageMeter(),
-        "sdm_loss": AverageMeter(),
+        "a-sdm_loss": AverageMeter(),
         "itc_loss": AverageMeter(),
+        "efa_loss": AverageMeter(),
         "id_loss": AverageMeter(),
         "mlm_loss": AverageMeter(),
         "img_acc": AverageMeter(),
@@ -84,7 +85,12 @@ def do_pretrain(start_epoch, args, model, train_loader, evaluator0,evaluator1,ev
 
             batch_size = batch['images'].shape[0]
             meters['loss'].update(total_loss.item(), batch_size)
-            meters['sdm_loss'].update(loss_sdm, batch_size)
+            meters['a-sdm_loss'].update(loss_sdm, batch_size)
+            meters['efa_loss'].update(ret.get('efa_loss', 0), batch_size)
+
+            meters['img_acc'].update(ret.get('img_acc', 0), batch_size)
+            meters['txt_acc'].update(ret.get('txt_acc', 0), batch_size)
+            meters['mlm_acc'].update(ret.get('mlm_acc', 0), 1)
 
             optimizer.zero_grad()
             total_loss.backward()
