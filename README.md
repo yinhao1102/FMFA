@@ -45,7 +45,7 @@ Download the pre-train model checkpoints from [NAM](https://github.com/WentaoTan
 
 To train the model with the backbone without pretrained in the Re-ID domain, you can run the [run.sh](run.sh). 
 
-To train the model with the backbone without pretrained in the Re-ID domain, you can run the [finetune.sh](finetune.sh). 
+To train the model with the backbone with pretrained in the Re-ID domain, you can run the [finetune.sh](finetune.sh). 
 
 ## Testing
 
@@ -54,4 +54,5 @@ python test.py --config_file 'path/to/model_dir/configs.yaml'
 ```
 
 ## Acknowledgments
+
 This repo borrows partially from [IRRA](https://github.com/anosorae/IRRA), [NAM](https://github.com/WentaoTan/MLLM4Text-ReID) and [HAM](https://github.com/sssaury/HAM).
