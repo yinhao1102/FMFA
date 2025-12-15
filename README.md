@@ -1,4 +1,7 @@
 # Cross-modal Full-mode Fine-grained Alignment for Text-to-Image Person Retrieval
+
+Official PyTorch implementation of the paper Cross-modal Full-mode Fine-grained Alignment for Text-to-Image Person Retrieval (ACM TOMM) [Arxiv](https://arxiv.org/abs/2509.13754).
+
 ![](images/fmfa.png)
 
 ## Requirements and Datasets
@@ -56,3 +59,4 @@ python test.py --config_file 'path/to/model_dir/configs.yaml'
 ## Acknowledgments
 
 This repo borrows partially from [IRRA](https://github.com/anosorae/IRRA), [NAM](https://github.com/WentaoTan/MLLM4Text-ReID) and [HAM](https://github.com/sssaury/HAM).
+
