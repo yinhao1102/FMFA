@@ -60,3 +60,21 @@ python test.py --config_file 'path/to/model_dir/configs.yaml'
 
 This repo borrows partially from [IRRA](https://github.com/anosorae/IRRA), [NAM](https://github.com/WentaoTan/MLLM4Text-ReID) and [HAM](https://github.com/sssaury/HAM).
 
+
+## Citation
+If you find our work useful, please cite it as follows:
+```bibtex
+@article{yin_2026_fmfa,
+author = {Yin, Hao and Man, Xin and Chen, Feiyu and Shao, Jie and Shen, Heng Tao},
+title = {Cross-modal Full-mode Fine-grained Alignment for Text-to-Image Person Retrieval},
+year = {2026},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+issn = {1551-6857},
+url = {https://doi.org/10.1145/3786798},
+doi = {10.1145/3786798},
+note = {Just Accepted},
+journal = {ACM Trans. Multimedia Comput. Commun. Appl.},
+month = jan,
+}
+```
