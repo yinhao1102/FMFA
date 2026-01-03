@@ -1,6 +1,6 @@
 # Cross-modal Full-mode Fine-grained Alignment for Text-to-Image Person Retrieval
 
-Official PyTorch implementation of the paper Cross-modal Full-mode Fine-grained Alignment for Text-to-Image Person Retrieval (ACM TOMM) [Arxiv](https://arxiv.org/abs/2509.13754).
+Official PyTorch implementation of the paper Cross-modal Full-mode Fine-grained Alignment for Text-to-Image Person Retrieval ([ACM TOMM](https://dl.acm.org/doi/10.1145/3786798)) [Arxiv](https://arxiv.org/abs/2509.13754).
 
 ![](images/fmfa.png)
 
@@ -78,3 +78,4 @@ journal = {ACM Trans. Multimedia Comput. Commun. Appl.},
 month = jan,
 }
 ```
+
