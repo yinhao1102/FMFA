@@ -64,18 +64,19 @@ This repo borrows partially from [IRRA](https://github.com/anosorae/IRRA), [NAM]
 ## Citation
 If you find our work useful, please cite it as follows:
 ```bibtex
-@article{yin_2026_fmfa,
+@article{yin2026fmfa,
 author = {Yin, Hao and Man, Xin and Chen, Feiyu and Shao, Jie and Shen, Heng Tao},
-title = {Cross-modal Full-mode Fine-grained Alignment for Text-to-Image Person Retrieval},
+title = {Cross-Modal Full-Mode Fine-Grained Alignment for Text-to-Image Person Retrieval},
 year = {2026},
-publisher = {Association for Computing Machinery},
-address = {New York, NY, USA},
+volume = {22},
+number = {5},
 issn = {1551-6857},
 url = {https://doi.org/10.1145/3786798},
 doi = {10.1145/3786798},
-note = {Just Accepted},
 journal = {ACM Trans. Multimedia Comput. Commun. Appl.},
-month = jan,
+month = apr,
+articleno = {135},
+numpages = {20},
 }
 ```
 
